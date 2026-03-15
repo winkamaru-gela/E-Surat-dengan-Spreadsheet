@@ -1,0 +1,435 @@
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        if(sessionStorage.getItem('isLoggedIn') === 'true') {
+            showMainApp();
+            loadDashboardStats();
+        } else {
+            showPublicPortal(); 
+        }
+    });
+
+    // --- MANAJEMEN LAYAR ---
+    
+    // Fungsi untuk menyembunyikan/menampilkan sidebar
+    function toggleSidebar() {
+        const sidebar = document.getElementById('admin-sidebar');
+        // Hanya toggle jika user sudah login dan berada di Main App
+        if(sessionStorage.getItem('isLoggedIn') === 'true') {
+            if (sidebar.classList.contains('hidden')) {
+                sidebar.classList.remove('hidden');
+                sidebar.classList.add('flex');
+            } else {
+                sidebar.classList.add('hidden');
+                sidebar.classList.remove('flex');
+            }
+        }
+    }
+
+    function showPublicPortal() {
+        document.getElementById('public-portal').classList.remove('hidden');
+        document.getElementById('login-screen').classList.add('hidden');
+        document.getElementById('admin-sidebar').classList.add('hidden');
+        document.getElementById('admin-sidebar').classList.remove('flex'); 
+        document.getElementById('admin-main').classList.add('hidden');
+        loadPeraturanPublik();
+    }
+
+    function showLoginScreen() {
+        document.getElementById('public-portal').classList.add('hidden');
+        document.getElementById('login-screen').classList.remove('hidden');
+        document.getElementById('admin-sidebar').classList.add('hidden');
+        document.getElementById('admin-sidebar').classList.remove('flex');
+        document.getElementById('admin-main').classList.add('hidden');
+    }
+
+    function showMainApp() {
+        document.getElementById('public-portal').classList.add('hidden');
+        document.getElementById('login-screen').classList.add('hidden');
+        document.getElementById('admin-sidebar').classList.remove('hidden');
+        document.getElementById('admin-sidebar').classList.add('flex');
+        document.getElementById('admin-main').classList.remove('hidden');
+        
+        if(sessionStorage.getItem('role') === 'Admin') {
+            document.getElementById('menu-admin').classList.remove('hidden');
+        } else {
+            document.getElementById('menu-admin').classList.add('hidden');
+        }
+    }
+
+    function prosesLogin() {
+        const user = document.getElementById('login-user').value;
+        const pass = document.getElementById('login-pass').value;
+        toggleLoading(true, "Memverifikasi...");
+        google.script.run
+            .withSuccessHandler((res) => {
+                toggleLoading(false);
+                if(res.success) {
+                    sessionStorage.setItem('isLoggedIn', 'true');
+                    sessionStorage.setItem('role', res.role); 
+                    document.getElementById('login-pass').value = ''; 
+                    showMainApp();
+                    nav('dashboard'); 
+                } else {
+                    alert('Login gagal: ' + res.message);
+                }
+            })
+            .withFailureHandler((err) => { toggleLoading(false); alert('Error: ' + err.message); })
+            .apiLogin(user, pass);
+    }
+
+    function logout() {
+        sessionStorage.removeItem('isLoggedIn');
+        sessionStorage.removeItem('role');
+        showPublicPortal(); 
+    }
+    
+    // --- NAVIGASI ADMIN (SPA) ---
+    function nav(tabId) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('block'));
+        document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('bg-blue-800'));
+
+        document.getElementById('tab-' + tabId).classList.remove('hidden');
+        document.getElementById('tab-' + tabId).classList.add('block');
+        document.getElementById('nav-' + tabId).classList.add('bg-blue-800');
+
+        if(tabId === 'dashboard') loadDashboardStats();
+        if(tabId === 'daftarMasuk') loadDaftarMasuk();
+        if(tabId === 'daftarKeluar') loadDaftarKeluar();
+        if(tabId === 'daftarPeraturan') loadDaftarPeraturanAdmin();
+        if(tabId === 'pengguna' && sessionStorage.getItem('role') === 'Admin') loadDaftarUser(); 
+    }
+
+    function toggleLoading(show, text = "Memproses...") {
+        const overlay = document.getElementById('loading-overlay');
+        document.getElementById('loading-text').innerText = text;
+        if (show) overlay.classList.remove('hidden');
+        else overlay.classList.add('hidden');
+    }
+
+    function showMessage(elementId, text, isSuccess) {
+        const el = document.getElementById(elementId);
+        el.innerText = text;
+        el.className = `mt-4 p-3 rounded-md text-sm font-semibold text-center ${isSuccess ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`;
+        setTimeout(() => { el.innerText = ''; el.className = ''; }, 5000);
+    }
+
+    // ==========================================
+    // FUNGSI JDIH / PERATURAN
+    // ==========================================
+
+    function loadPeraturanPublik() {
+        const tbody = document.getElementById('tbody-publik-peraturan');
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-gray-500"><div class="loader inline-block border-2 w-4 h-4 mr-2 border-blue-500"></div> Memuat dokumen...</td></tr>';
+        google.script.run
+            .withSuccessHandler((data) => {
+                tbody.innerHTML = '';
+                if(data.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-gray-500">Belum ada dokumen publik.</td></tr>'; return; }
+                data.forEach((row) => {
+                    let linkHTML = row.linkPdf ? `<a href="${row.linkPdf}" target="_blank" class="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-full text-xs font-bold transition-colors inline-block"><i class="fas fa-file-pdf mr-1"></i> Buka PDF</a>` : '-';
+                    let tr = `
+                        <tr class="border-b hover:bg-blue-50 text-sm public-row">
+                            <td class="py-4 px-4 whitespace-nowrap"><span class="bg-gray-100 text-gray-600 px-2 py-1 rounded border">${row.kategori}</span></td>
+                            <td class="py-4 px-4 font-bold text-gray-800 whitespace-nowrap">${row.nomor} / ${row.tahun}</td>
+                            <td class="py-4 px-4 text-gray-700 font-medium">${row.tentang}</td>
+                            <td class="py-4 px-4 text-center">${linkHTML}</td>
+                        </tr>
+                    `;
+                    tbody.insertAdjacentHTML('beforeend', tr);
+                });
+            })
+            .apiGetDaftarPeraturan();
+    }
+
+    function filterPublik() {
+        const input = document.getElementById('search-publik').value.toLowerCase();
+        document.querySelectorAll('.public-row').forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(input) ? '' : 'none';
+        });
+    }
+
+    function submitPeraturan() {
+        const data = {
+            kategori: document.getElementById('prt-kategori').value,
+            nomor: document.getElementById('prt-no').value,
+            tahun: document.getElementById('prt-tahun').value,
+            tentang: document.getElementById('prt-tentang').value,
+            linkPdf: document.getElementById('prt-link').value
+        };
+        toggleLoading(true, "Memublikasikan...");
+        google.script.run
+            .withSuccessHandler((res) => {
+                toggleLoading(false);
+                if(res.success) { showMessage('msg-peraturan', res.message, true); document.getElementById('formPeraturan').reset(); } 
+                else showMessage('msg-peraturan', res.message, false);
+            })
+            .apiSimpanPeraturan(data);
+    }
+
+    function loadDaftarPeraturanAdmin() {
+        const tbody = document.getElementById('tbody-peraturan');
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-gray-500">Memuat data...</td></tr>';
+        google.script.run
+            .withSuccessHandler((data) => {
+                tbody.innerHTML = '';
+                if(data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-gray-500">Kosong.</td></tr>'; return; }
+                
+                data.forEach((row) => {
+                    let linkHTML = row.linkPdf ? `<a href="${row.linkPdf}" target="_blank" class="text-red-500 hover:text-red-700 text-lg"><i class="fas fa-file-pdf"></i></a>` : '-';
+                    
+                    let encKat = encodeURIComponent(row.kategori);
+                    let encNo = encodeURIComponent(row.nomor);
+                    let encThn = encodeURIComponent(row.tahun);
+                    let encTentang = encodeURIComponent(row.tentang);
+                    let encLink = encodeURIComponent(row.linkPdf || '');
+                    
+                    let btnEdit = `<button onclick="openEditPeraturanModal(${row.rowId}, '${encKat}', '${encNo}', '${encThn}', '${encTentang}', '${encLink}')" class="text-purple-600 bg-purple-50 hover:bg-purple-100 px-2 py-1 rounded" title="Edit"><i class="fas fa-edit"></i></button>`;
+                    let btnHapus = `<button onclick="hapusData('Peraturan', ${row.rowId})" class="text-red-600 bg-red-50 hover:bg-red-100 px-2 py-1 rounded ml-1" title="Hapus"><i class="fas fa-trash"></i></button>`;
+                    let btnAksi = `<div class="flex justify-center">${btnEdit}${btnHapus}</div>`;
+
+                    let tr = `
+                        <tr class="border-b text-sm hover:bg-gray-50">
+                            <td class="py-2 px-4">${row.kategori}</td>
+                            <td class="py-2 px-4 font-bold">${row.nomor}/${row.tahun}</td>
+                            <td class="py-2 px-4">${row.tentang}</td>
+                            <td class="py-2 px-4 text-center">${linkHTML}</td>
+                            <td class="py-2 px-4 text-center">${btnAksi}</td>
+                        </tr>
+                    `;
+                    tbody.insertAdjacentHTML('beforeend', tr);
+                });
+            })
+            .apiGetDaftarPeraturan();
+    }
+
+    function openEditPeraturanModal(rowId, encKat, encNo, encThn, encTentang, encLink) {
+        document.getElementById('edit-prt-rowId').value = rowId;
+        document.getElementById('edit-prt-kategori').value = decodeURIComponent(encKat);
+        document.getElementById('edit-prt-no').value = decodeURIComponent(encNo);
+        document.getElementById('edit-prt-tahun').value = decodeURIComponent(encThn);
+        document.getElementById('edit-prt-tentang').value = decodeURIComponent(encTentang);
+        document.getElementById('edit-prt-link').value = decodeURIComponent(encLink);
+        
+        document.getElementById('edit-peraturan-modal').classList.remove('hidden');
+    }
+
+    function closeEditPeraturanModal() {
+        document.getElementById('edit-peraturan-modal').classList.add('hidden');
+    }
+
+    function submitEditPeraturanData() {
+        const data = {
+            rowId: document.getElementById('edit-prt-rowId').value,
+            kategori: document.getElementById('edit-prt-kategori').value,
+            nomor: document.getElementById('edit-prt-no').value,
+            tahun: document.getElementById('edit-prt-tahun').value,
+            tentang: document.getElementById('edit-prt-tentang').value,
+            linkPdf: document.getElementById('edit-prt-link').value
+        };
+        closeEditPeraturanModal(); 
+        toggleLoading(true, "Menyimpan perubahan peraturan...");
+        
+        google.script.run
+            .withSuccessHandler((res) => {
+                toggleLoading(false);
+                if(res.success) loadDaftarPeraturanAdmin(); 
+                else alert('Gagal: ' + res.message);
+            })
+            .withFailureHandler((err) => { toggleLoading(false); alert('Error: ' + err.message); })
+            .apiUpdatePeraturan(data);
+    }
+
+    // ==========================================
+    // FUNGSI SURAT MASUK & KELUAR
+    // ==========================================
+
+    function loadDashboardStats() {
+        google.script.run.withSuccessHandler((stats) => {
+            document.getElementById('stat-masuk').innerText = stats.jmlMasuk;
+            document.getElementById('stat-keluar').innerText = stats.jmlKeluar;
+        }).apiGetDashboardStatistik();
+    }
+
+    function loadDaftarMasuk() {
+        const tbody = document.getElementById('tbody-masuk');
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-500">Memuat data...</td></tr>';
+        google.script.run
+            .withSuccessHandler((data) => {
+                tbody.innerHTML = '';
+                if(data.length === 0) return tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-500">Belum ada data surat masuk.</td></tr>';
+                data.forEach((row) => {
+                    let linkHTML = row.linkDoc ? `<a href="${row.linkDoc}" target="_blank" class="text-blue-500"><i class="fas fa-external-link-alt"></i></a>` : '-';
+                    
+                    let encNo = encodeURIComponent(row.noSurat); let encPerihal = encodeURIComponent(row.perihal); let encLink = encodeURIComponent(row.linkDoc || '');
+                    
+                    let btnEdit = `<button onclick="openEditModal('Masuk', ${row.rowId}, '${encNo}', '${encPerihal}', '${encLink}')" class="text-yellow-600 bg-yellow-50 hover:bg-yellow-100 px-2 py-1 rounded" title="Edit"><i class="fas fa-edit"></i></button>`;
+                    let btnHapus = `<button onclick="hapusData('Masuk', ${row.rowId})" class="text-red-600 bg-red-50 hover:bg-red-100 px-2 py-1 rounded ml-1" title="Hapus"><i class="fas fa-trash"></i></button>`;
+                    let btnAksi = `<div class="flex justify-center">${btnEdit}${btnHapus}</div>`;
+
+                    let tr = `<tr class="border-b text-sm"><td>${row.idSurat}</td><td>${row.tglTerima}</td><td class="font-bold">${row.noSurat}</td><td>${row.asalSurat}<br><span class="text-xs text-gray-500">${row.perihal}</span></td><td>${row.disposisi}</td><td class="text-center">${linkHTML}</td><td class="text-center">${btnAksi}</td></tr>`;
+                    tbody.insertAdjacentHTML('beforeend', tr);
+                });
+            }).apiGetDaftarSuratMasuk();
+    }
+
+    function loadDaftarKeluar() {
+        const tbody = document.getElementById('tbody-keluar');
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-500">Memuat data...</td></tr>';
+        google.script.run
+            .withSuccessHandler((data) => {
+                tbody.innerHTML = '';
+                if(data.length === 0) return tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-500">Belum ada data surat keluar.</td></tr>';
+                data.forEach((row) => {
+                    let linkHTML = row.linkDoc ? `<a href="${row.linkDoc}" target="_blank" class="text-blue-500"><i class="fas fa-external-link-alt"></i></a>` : '-';
+                    
+                    let encNo = encodeURIComponent(row.noSuratKeluar); let encPerihal = encodeURIComponent(row.perihal); let encLink = encodeURIComponent(row.linkDoc || '');
+                    
+                    let btnEdit = `<button onclick="openEditModal('Keluar', ${row.rowId}, '${encNo}', '${encPerihal}', '${encLink}')" class="text-yellow-600 bg-yellow-50 hover:bg-yellow-100 px-2 py-1 rounded" title="Edit"><i class="fas fa-edit"></i></button>`;
+                    let btnHapus = `<button onclick="hapusData('Keluar', ${row.rowId})" class="text-red-600 bg-red-50 hover:bg-red-100 px-2 py-1 rounded ml-1" title="Hapus"><i class="fas fa-trash"></i></button>`;
+                    let btnAksi = `<div class="flex justify-center">${btnEdit}${btnHapus}</div>`;
+
+                    let tr = `<tr class="border-b text-sm"><td>${row.tglSurat}</td><td class="font-bold">${row.noSuratKeluar}</td><td>${row.tujuan}</td><td>${row.perihal}</td><td>${row.penandatangan}</td><td class="text-center">${linkHTML}</td><td class="text-center">${btnAksi}</td></tr>`;
+                    tbody.insertAdjacentHTML('beforeend', tr);
+                });
+            }).apiGetDaftarSuratKeluar();
+    }
+
+    function submitSuratMasuk() {
+        const data = {
+            asalSurat: document.getElementById('sm-asal').value, noSurat: document.getElementById('sm-no').value,
+            perihal: document.getElementById('sm-perihal').value, disposisi: document.getElementById('sm-disposisi').value, linkDoc: document.getElementById('sm-link').value
+        };
+        toggleLoading(true, "Menyimpan Surat...");
+        google.script.run.withSuccessHandler((res) => { toggleLoading(false); if(res.success) { showMessage('msg-masuk', 'Sukses', true); document.getElementById('formMasuk').reset(); } else showMessage('msg-masuk', res.message, false); }).apiSimpanSuratMasuk(data);
+    }
+
+    function submitSuratKeluar() {
+        const data = {
+            noSurat: document.getElementById('sk-no').value, tujuan: document.getElementById('sk-tujuan').value,
+            perihal: document.getElementById('sk-perihal').value, ttd: document.getElementById('sk-ttd').value, linkDoc: document.getElementById('sk-link').value
+        };
+        toggleLoading(true, "Menyimpan Surat...");
+        google.script.run.withSuccessHandler((res) => { toggleLoading(false); if(res.success) { showMessage('msg-keluar', 'Sukses', true); document.getElementById('formKeluar').reset(); } else showMessage('msg-keluar', res.message, false); }).apiSimpanSuratKeluar(data);
+    }
+
+    function openEditModal(jenis, rowId, encNoSurat, encPerihal, encLink) {
+        document.getElementById('edit-jenis').value = jenis; document.getElementById('edit-rowId').value = rowId;
+        document.getElementById('edit-no').value = decodeURIComponent(encNoSurat); document.getElementById('edit-perihal').value = decodeURIComponent(encPerihal); document.getElementById('edit-link').value = decodeURIComponent(encLink);
+        document.getElementById('edit-modal').classList.remove('hidden');
+    }
+    
+    function closeEditModal() { document.getElementById('edit-modal').classList.add('hidden'); }
+    
+    function submitEditData() {
+        const data = { jenis: document.getElementById('edit-jenis').value, rowId: document.getElementById('edit-rowId').value, noSurat: document.getElementById('edit-no').value, perihal: document.getElementById('edit-perihal').value, linkDoc: document.getElementById('edit-link').value };
+        closeEditModal(); toggleLoading(true, "Menyimpan...");
+        google.script.run.withSuccessHandler((res) => { toggleLoading(false); if(res.success) { if(data.jenis === 'Masuk') loadDaftarMasuk(); else loadDaftarKeluar(); } else alert('Gagal: ' + res.message); }).apiUpdateSurat(data);
+    }
+
+    // ==========================================
+    // FUNGSI PENGGUNA (Khusus Admin)
+    // ==========================================
+
+    function loadDaftarUser() {
+        const tbody = document.getElementById('tbody-pengguna');
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-gray-500">Memuat data pengguna...</td></tr>';
+        google.script.run
+            .withSuccessHandler((data) => {
+                tbody.innerHTML = '';
+                data.forEach((row) => {
+                    let roleBadge = row.role === 'Admin' ? '<span class="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-bold border border-yellow-200">Admin</span>' : '<span class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-bold border border-gray-200">Staff</span>';
+                    let tr = `
+                        <tr class="border-b hover:bg-gray-50 text-sm">
+                            <td class="py-3 px-4 font-bold text-gray-800">${row.username}</td>
+                            <td class="py-3 px-4">${row.nama}</td>
+                            <td class="py-3 px-4 text-center">${roleBadge}</td>
+                            <td class="py-3 px-4 text-center"><button onclick="openModalPassword('${row.username}')" class="text-blue-600 bg-blue-50 px-3 py-1 rounded-md text-xs font-bold"><i class="fas fa-key"></i> Ubah Sandi</button></td>
+                        </tr>
+                    `;
+                    tbody.insertAdjacentHTML('beforeend', tr);
+                });
+            })
+            .apiGetDaftarUser();
+    }
+
+    function openModalTambahUser() { document.getElementById('formTambahUser').reset(); document.getElementById('modal-tambah-user').classList.remove('hidden'); }
+    function closeModalUser() { document.getElementById('modal-tambah-user').classList.add('hidden'); }
+
+    function submitTambahUser() {
+        const data = { username: document.getElementById('add-username').value, nama: document.getElementById('add-nama').value, role: document.getElementById('add-role').value, password: document.getElementById('add-password').value };
+        closeModalUser(); toggleLoading(true, "Menyimpan...");
+        google.script.run.withSuccessHandler((res) => { toggleLoading(false); if(res.success) { alert(res.message); loadDaftarUser(); } else alert('Gagal: ' + res.message); }).apiTambahUser(data);
+    }
+
+    function openModalPassword(username) { document.getElementById('formUbahPassword').reset(); document.getElementById('pass-username').value = username; document.getElementById('pass-username-display').innerText = username; document.getElementById('modal-ubah-password').classList.remove('hidden'); }
+    function closeModalPassword() { document.getElementById('modal-ubah-password').classList.add('hidden'); }
+
+    function submitUbahPassword() {
+        const username = document.getElementById('pass-username').value; const newPass = document.getElementById('pass-new').value;
+        closeModalPassword(); toggleLoading(true, "Memperbarui password...");
+        google.script.run.withSuccessHandler((res) => { toggleLoading(false); if(res.success) alert(res.message); else alert('Gagal: ' + res.message); }).apiUbahPassword(username, newPass);
+    }
+
+    // ==========================================
+    // FUNGSI CETAK DAN HAPUS DATA
+    // ==========================================
+
+    function cetakTabel(tableId, judul) {
+        const table = document.getElementById(tableId).cloneNode(true);
+        const ths = table.querySelectorAll('th');
+        const trs = table.querySelectorAll('tr');
+
+        // Sembunyikan kolom 'Aksi' saat dicetak
+        if(ths.length > 0 && ths[ths.length-1].innerText.trim() === 'Aksi') {
+            ths[ths.length-1].remove();
+            trs.forEach(tr => {
+                const tds = tr.querySelectorAll('td');
+                if(tds.length > 0) tds[tds.length-1].remove();
+            });
+        }
+
+        const win = window.open('', '', 'height=700,width=900');
+        win.document.write('<html><head><title>Cetak ' + judul + '</title>');
+        win.document.write('<style>');
+        win.document.write('body { font-family: Arial, sans-serif; padding: 20px; }');
+        win.document.write('table { width: 100%; border-collapse: collapse; margin-top: 20px; }');
+        win.document.write('th, td { border: 1px solid #333; padding: 10px; text-align: left; font-size: 12px; }');
+        win.document.write('th { background-color: #f3f4f6; }');
+        win.document.write('.text-center { text-align: center; }');
+        win.document.write('a { text-decoration: none; color: black; }'); 
+        win.document.write('</style></head><body>');
+        win.document.write('<h2>' + judul + '</h2>');
+        win.document.write('<p>Dicetak pada: ' + new Date().toLocaleString('id-ID') + '</p>');
+        win.document.write(table.outerHTML);
+        win.document.write('</body></html>');
+        win.document.close();
+        
+        setTimeout(() => {
+            win.print();
+            win.close();
+        }, 500);
+    }
+
+    function hapusData(jenis, rowId) {
+        if(confirm(`Apakah Anda yakin ingin menghapus data ${jenis} ini secara permanen?`)) {
+            toggleLoading(true, "Menghapus data...");
+            google.script.run
+                .withSuccessHandler((res) => {
+                    toggleLoading(false);
+                    if(res.success) {
+                        if(jenis === 'Masuk') loadDaftarMasuk();
+                        if(jenis === 'Keluar') loadDaftarKeluar();
+                        if(jenis === 'Peraturan') loadDaftarPeraturanAdmin();
+                        loadDashboardStats(); 
+                    } else {
+                        alert('Gagal menghapus: ' + res.message);
+                    }
+                })
+                .withFailureHandler((err) => {
+                    toggleLoading(false);
+                    alert('Error sistem: ' + err.message);
+                })
+                .apiHapusData(jenis, rowId);
+        }
+    }
+</script>
